@@ -1,0 +1,11 @@
+[package]
+name = "zola_db"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+memmap2.workspace = true
+zerocopy.workspace = true
+jiff.workspace = true
+thiserror.workspace = true
+tempfile.workspace = true

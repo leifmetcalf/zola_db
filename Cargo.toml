@@ -1,9 +1,8 @@
-[package]
-name = "zola_db"
-version = "0.1.0"
-edition = "2024"
+[workspace]
+members = ["crates/*"]
+resolver = "3"
 
-[dependencies]
+[workspace.dependencies]
 memmap2 = "0.9"
 zerocopy = { version = "0.8", features = ["derive"] }
 jiff = "0.2"
