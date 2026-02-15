@@ -1,8 +1,8 @@
 mod error;
 mod schema;
-mod storage;
+mod format;
+mod io;
 mod partition;
-mod ingest;
 mod asof;
 
 pub use error::{ZolaError, Result};
@@ -30,7 +30,7 @@ impl Db {
         let root = root.as_ref().to_path_buf();
 
         if root.exists() {
-            storage::recover(&root)?;
+            io::recover(&root)?;
         } else {
             std::fs::create_dir_all(&root).map_err(|e| ZolaError::io(&root, e))?;
         }
@@ -60,7 +60,7 @@ impl Db {
         symbols: &[i64],
         columns: &[ColumnSlice<'_>],
     ) -> Result<()> {
-        ingest::write_table(&self.root, table, schema, timestamps, symbols, columns)?;
+        partition::write_table(&self.root, table, schema, timestamps, symbols, columns)?;
 
         // Reload the table
         let table_dir = self.root.join(table);
@@ -86,7 +86,7 @@ impl Db {
 }
 
 fn load_table(table_dir: &Path) -> Result<Option<TableInfo>> {
-    let schema = match storage::read_schema_file(table_dir)? {
+    let schema = match io::read_schema_file(table_dir)? {
         Some(s) => s,
         None => return Ok(None),
     };

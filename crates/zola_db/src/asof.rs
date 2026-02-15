@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use crate::error::Result;
-use crate::ingest::micros_to_date_str;
+use crate::partition::micros_to_date_str;
 use crate::partition::Partition;
 use crate::schema::*;
 
