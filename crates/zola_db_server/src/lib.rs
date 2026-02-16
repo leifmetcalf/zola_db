@@ -1,7 +1,6 @@
-pub mod client;
 pub mod server;
 
-pub use client::Client;
+pub use zola_db_client::Client;
 
 #[cfg(test)]
 mod tests {

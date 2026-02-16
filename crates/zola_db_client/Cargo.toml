@@ -1,13 +1,9 @@
 [package]
-name = "zola_db_server"
+name = "zola_db_client"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
 zola_db = { path = "../zola_db" }
-zola_db_client = { path = "../zola_db_client" }
 zola_db_proto = { path = "../zola_db_proto" }
 zerocopy.workspace = true
-
-[dev-dependencies]
-tempfile.workspace = true

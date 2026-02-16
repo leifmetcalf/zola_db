@@ -551,6 +551,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "zola_db_client"
+version = "0.1.0"
+dependencies = [
+ "zerocopy",
+ "zola_db",
+ "zola_db_proto",
+]
+
+[[package]]
 name = "zola_db_proto"
 version = "0.1.0"
 dependencies = [
@@ -564,5 +573,6 @@ dependencies = [
  "tempfile",
  "zerocopy",
  "zola_db",
+ "zola_db_client",
  "zola_db_proto",
 ]
