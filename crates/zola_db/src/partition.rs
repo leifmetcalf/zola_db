@@ -134,14 +134,26 @@ pub fn write_table(
     columns: &[ColumnSlice<'_>],
 ) -> Result<()> {
     let n = timestamps.len();
-    assert_eq!(n, symbols.len());
-    assert_eq!(columns.len(), schema.value_columns.len());
+    if n != symbols.len() {
+        return Err(ZolaError::SchemaMismatch(format!(
+            "timestamps len {} != symbols len {}", n, symbols.len()
+        )));
+    }
+    if columns.len() != schema.value_columns.len() {
+        return Err(ZolaError::SchemaMismatch(format!(
+            "columns len {} != schema len {}", columns.len(), schema.value_columns.len()
+        )));
+    }
     for (i, col) in columns.iter().enumerate() {
         let len = match col {
             ColumnSlice::I64(s) => s.len(),
             ColumnSlice::F64(s) => s.len(),
         };
-        assert_eq!(len, n, "column {} length mismatch", schema.value_columns[i].name);
+        if len != n {
+            return Err(ZolaError::SchemaMismatch(format!(
+                "column {} length {} != row count {}", schema.value_columns[i].name, len, n
+            )));
+        }
     }
 
     if n == 0 {
@@ -216,7 +228,6 @@ pub fn write_table(
             build_sidecar_entries(&parted, &sorted_ts, &sorted_vcol_bytes, false);
 
         let num_vcols = schema.value_columns.len() as u32;
-        let schema_ref = schema;
 
         atomic_write_partition(&part_dir, |tmp_dir| {
             // Write timestamp column
@@ -234,7 +245,7 @@ pub fn write_table(
             )?;
 
             // Write value columns
-            for (ci, col_def) in schema_ref.value_columns.iter().enumerate() {
+            for (ci, col_def) in schema.value_columns.iter().enumerate() {
                 write_column_file(
                     &tmp_dir.join(format!("{}.col", col_def.name)),
                     col_def.col_type,

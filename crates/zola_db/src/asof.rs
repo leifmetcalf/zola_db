@@ -18,7 +18,11 @@ pub fn asof_join(
     direction: Direction,
 ) -> Result<AsofResult> {
     let n = probes.symbols.len();
-    assert_eq!(n, probes.timestamps.len());
+    if n != probes.timestamps.len() {
+        return Err(crate::error::ZolaError::SchemaMismatch(format!(
+            "probes symbols len {} != timestamps len {}", n, probes.timestamps.len()
+        )));
+    }
 
     let mut result_ts = vec![NULL_I64; n];
     let mut result_cols: Vec<ColumnVec> = schema
@@ -199,8 +203,9 @@ fn prev_partition<'a>(
     partitions: &'a BTreeMap<String, Partition>,
     date_str: &str,
 ) -> Option<&'a Partition> {
+    use std::ops::Bound;
     partitions
-        .range(..date_str.to_string())
+        .range::<String, _>((Bound::Unbounded, Bound::Excluded(date_str.to_string())))
         .next_back()
         .map(|(_, p)| p)
 }
@@ -211,7 +216,7 @@ fn next_partition<'a>(
 ) -> Option<&'a Partition> {
     use std::ops::Bound;
     partitions
-        .range((Bound::Excluded(date_str.to_string()), Bound::Unbounded))
+        .range::<String, _>((Bound::Excluded(date_str.to_string()), Bound::Unbounded))
         .next()
         .map(|(_, p)| p)
 }

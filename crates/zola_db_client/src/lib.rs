@@ -69,6 +69,9 @@ impl Client {
         if header.magic != WIRE_MAGIC {
             return Err("bad magic in response".into());
         }
+        if header.body_len > MAX_BODY_LEN {
+            return Err(format!("body too large: {}", header.body_len));
+        }
 
         let body_len = header.body_len as usize;
         let mut body = vec![0u8; body_len];
@@ -202,8 +205,8 @@ fn parse_asof_result(body: &[u8]) -> Result<AsofResult, String> {
     let mut columns = Vec::with_capacity(col_count);
     for &ct in &col_types {
         match ct {
-            1 => columns.push(ColumnVec::I64(r.read_i64_slice(probe_count)?.to_vec())),
-            2 => columns.push(ColumnVec::F64(r.read_f64_slice(probe_count)?.to_vec())),
+            ct if ct == ColumnType::I64 as u32 => columns.push(ColumnVec::I64(r.read_i64_slice(probe_count)?.to_vec())),
+            ct if ct == ColumnType::F64 as u32 => columns.push(ColumnVec::F64(r.read_f64_slice(probe_count)?.to_vec())),
             _ => return Err(format!("unknown column type: {ct}")),
         }
     }

@@ -36,15 +36,13 @@ impl Db {
         }
 
         let mut tables = BTreeMap::new();
-        if root.exists() {
-            for entry in std::fs::read_dir(&root).map_err(|e| ZolaError::io(&root, e))? {
-                let entry = entry.map_err(|e| ZolaError::io(&root, e))?;
-                let path = entry.path();
-                if path.is_dir() {
-                    let table_name = entry.file_name().to_string_lossy().to_string();
-                    if let Some(info) = load_table(&path)? {
-                        tables.insert(table_name, info);
-                    }
+        for entry in std::fs::read_dir(&root).map_err(|e| ZolaError::io(&root, e))? {
+            let entry = entry.map_err(|e| ZolaError::io(&root, e))?;
+            let path = entry.path();
+            if path.is_dir() {
+                let table_name = entry.file_name().to_string_lossy().to_string();
+                if let Some(info) = load_table(&path)? {
+                    tables.insert(table_name, info);
                 }
             }
         }
