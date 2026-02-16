@@ -1,7 +1,5 @@
 pub mod server;
 
-pub use zola_db_client::Client;
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -9,6 +7,7 @@ mod tests {
     use std::sync::{Arc, RwLock};
     use tempfile::TempDir;
     use zola_db::*;
+    use zola_db_client::Client;
 
     const JAN15: i64 = 1_705_276_800 * 1_000_000;
 

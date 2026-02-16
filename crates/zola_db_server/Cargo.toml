@@ -5,9 +5,9 @@ edition = "2024"
 
 [dependencies]
 zola_db = { path = "../zola_db" }
-zola_db_client = { path = "../zola_db_client" }
 zola_db_proto = { path = "../zola_db_proto" }
 zerocopy.workspace = true
 
 [dev-dependencies]
+zola_db_client = { path = "../zola_db_client" }
 tempfile.workspace = true
