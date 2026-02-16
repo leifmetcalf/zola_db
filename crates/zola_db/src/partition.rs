@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use memmap2::Mmap;
 use zerocopy::{FromBytes, IntoBytes};
 
@@ -10,10 +10,8 @@ use crate::io::*;
 use crate::schema::{ColumnSlice, ColumnType, Schema};
 
 pub struct Partition {
-    pub dir: PathBuf,
     columns: HashMap<String, Mmap>,
     parted: Vec<PartedEntry>,
-    pub row_count: u64,
     pub last_values: Option<HashMap<i64, Vec<u8>>>,
     pub first_values: Option<HashMap<i64, Vec<u8>>>,
 }
@@ -59,25 +57,13 @@ impl Partition {
             vec![]
         };
 
-        // Row count from timestamp column header
-        let row_count = columns
-            .get("timestamp")
-            .map(|mmap| {
-                ColumnHeader::ref_from_bytes(&mmap[..HEADER_SIZE])
-                    .unwrap()
-                    .row_count
-            })
-            .unwrap_or(0);
-
         // Load sidecars
         let last_values = load_sidecar(&dir.join(".last_values"))?;
         let first_values = load_sidecar(&dir.join(".first_values"))?;
 
         Ok(Partition {
-            dir: dir.to_path_buf(),
             columns,
             parted,
-            row_count,
             last_values,
             first_values,
         })
