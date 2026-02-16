@@ -2521,7 +2521,6 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "tempfile",
  "tokio",
  "zip",
  "zola_db",

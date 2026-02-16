@@ -45,14 +45,23 @@ async fn main() {
         t.elapsed().as_secs_f64()
     );
 
-    // --- Phase 3: Ingest ---
+    // --- Phase 3: Ingest (cached) ---
+    let db_dir = cache_dir.join("db");
+    let table_dir = db_dir.join("binance_agg_trades");
+    let cached = table_dir.join(".schema").exists();
+
     println!("Phase 3: Ingesting into zola_db...");
     let t = Instant::now();
 
-    let tmp_dir = tempfile::TempDir::new().expect("failed to create temp dir");
-    let mut db = zola_db::Db::open(tmp_dir.path()).expect("failed to open db");
+    if cached {
+        println!("  using cached db at {}", db_dir.display());
+    } else {
+        std::fs::create_dir_all(&db_dir).expect("failed to create db dir");
+        let mut db = zola_db::Db::open(&db_dir).expect("failed to open db");
+        ingest::ingest(&mut db, &files, &symbol_ids);
+    }
 
-    ingest::ingest(&mut db, &files, &symbol_ids);
+    let db = zola_db::Db::open(&db_dir).expect("failed to open db");
     println!("  ingestion complete ({:.1}s)", t.elapsed().as_secs_f64());
 
     // --- Phase 4: Verify ---

@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::time::Instant;
 
 use jiff::Timestamp;
 use zola_db::{ColumnVec, Db, Direction, Probes, NULL_I64};
@@ -24,6 +25,7 @@ pub fn run_all(db: &Db, symbol_ids: &BTreeMap<String, i64>) {
     test_forward_start_of_day(db, symbol_ids);
     test_cross_partition_sidecar(db, symbol_ids);
     test_multi_symbol_batch(db, symbol_ids);
+    test_every_minute_ethusdt(db, symbol_ids);
     println!("All verification checks passed!");
 }
 
@@ -42,6 +44,7 @@ fn test_backward_known_symbols(db: &Db, symbol_ids: &BTreeMap<String, i64>) {
         })
         .collect();
 
+    let t = Instant::now();
     let result = db
         .asof(
             TABLE,
@@ -52,6 +55,7 @@ fn test_backward_known_symbols(db: &Db, symbol_ids: &BTreeMap<String, i64>) {
             Direction::Backward,
         )
         .expect("backward asof failed");
+    let elapsed = t.elapsed();
 
     for (i, (name, _)) in syms.iter().enumerate() {
         assert_ne!(
@@ -82,7 +86,7 @@ fn test_backward_known_symbols(db: &Db, symbol_ids: &BTreeMap<String, i64>) {
         );
     }
 
-    println!("    PASS");
+    println!("    PASS ({elapsed:.3?})");
 }
 
 /// 2. Forward asof for BTCUSDT at start of 2026-02-10.
@@ -92,6 +96,7 @@ fn test_forward_start_of_day(db: &Db, symbol_ids: &BTreeMap<String, i64>) {
     let probe_ts = ts_from_ymdhms(2026, 2, 10, 0, 0, 0);
     let btc_id = *symbol_ids.get("BTCUSDT").expect("BTCUSDT not found");
 
+    let t = Instant::now();
     let result = db
         .asof(
             TABLE,
@@ -102,6 +107,7 @@ fn test_forward_start_of_day(db: &Db, symbol_ids: &BTreeMap<String, i64>) {
             Direction::Forward,
         )
         .expect("forward asof failed");
+    let elapsed = t.elapsed();
 
     assert_ne!(
         result.timestamps[0], NULL_I64,
@@ -112,7 +118,7 @@ fn test_forward_start_of_day(db: &Db, symbol_ids: &BTreeMap<String, i64>) {
         "BTCUSDT forward: timestamp should be >= probe"
     );
 
-    println!("    PASS");
+    println!("    PASS ({elapsed:.3?})");
 }
 
 /// 3. Cross-partition sidecar: probe ETHUSDT backward at midnight 2026-02-11.
@@ -123,6 +129,7 @@ fn test_cross_partition_sidecar(db: &Db, symbol_ids: &BTreeMap<String, i64>) {
     let probe_ts = ts_from_ymdhms(2026, 2, 11, 0, 0, 0);
     let eth_id = *symbol_ids.get("ETHUSDT").expect("ETHUSDT not found");
 
+    let t = Instant::now();
     let result = db
         .asof(
             TABLE,
@@ -133,6 +140,7 @@ fn test_cross_partition_sidecar(db: &Db, symbol_ids: &BTreeMap<String, i64>) {
             Direction::Backward,
         )
         .expect("cross-partition asof failed");
+    let elapsed = t.elapsed();
 
     assert_ne!(
         result.timestamps[0], NULL_I64,
@@ -143,7 +151,6 @@ fn test_cross_partition_sidecar(db: &Db, symbol_ids: &BTreeMap<String, i64>) {
         "ETHUSDT sidecar: timestamp should be <= probe"
     );
 
-    // The result should come from 2026-02-10 (previous partition)
     let ColumnVec::F64(ref prices) = result.columns[0] else {
         panic!("expected F64 price column");
     };
@@ -152,7 +159,7 @@ fn test_cross_partition_sidecar(db: &Db, symbol_ids: &BTreeMap<String, i64>) {
         "ETHUSDT sidecar: price should be positive"
     );
 
-    println!("    PASS");
+    println!("    PASS ({elapsed:.3?})");
 }
 
 /// 4. Multi-symbol batch: probe 10 liquid symbols at mid-day 2026-02-12.
@@ -174,6 +181,7 @@ fn test_multi_symbol_batch(db: &Db, symbol_ids: &BTreeMap<String, i64>) {
         })
         .collect();
 
+    let t = Instant::now();
     let result = db
         .asof(
             TABLE,
@@ -184,6 +192,7 @@ fn test_multi_symbol_batch(db: &Db, symbol_ids: &BTreeMap<String, i64>) {
             Direction::Backward,
         )
         .expect("multi-symbol asof failed");
+    let elapsed = t.elapsed();
 
     let ColumnVec::F64(ref prices) = result.columns[0] else {
         panic!("expected F64 price column");
@@ -201,5 +210,74 @@ fn test_multi_symbol_batch(db: &Db, symbol_ids: &BTreeMap<String, i64>) {
         );
     }
 
-    println!("    PASS");
+    println!("    PASS ({elapsed:.3?})");
+}
+
+/// 5. Backward asof for ETHUSDT at every minute across all 3 days.
+///    4320 probes (3 days × 24 hours × 60 minutes), issued as a single batch.
+fn test_every_minute_ethusdt(db: &Db, symbol_ids: &BTreeMap<String, i64>) {
+    println!("  check: every-minute backward asof for ETHUSDT across 2026-02-10..12");
+
+    let eth_id = *symbol_ids.get("ETHUSDT").expect("ETHUSDT not found");
+    let start = ts_from_ymdhms(2026, 2, 10, 0, 0, 0);
+    let one_minute_us: i64 = 60 * 1_000_000;
+    let n = 3 * 24 * 60; // 4320 probes
+
+    let probe_timestamps: Vec<i64> = (0..n).map(|i| start + i as i64 * one_minute_us).collect();
+    let probe_symbols: Vec<i64> = vec![eth_id; n];
+
+    let t = Instant::now();
+    let result = db
+        .asof(
+            TABLE,
+            &Probes {
+                symbols: &probe_symbols,
+                timestamps: &probe_timestamps,
+            },
+            Direction::Backward,
+        )
+        .expect("every-minute asof failed");
+    let elapsed = t.elapsed();
+
+    let ColumnVec::F64(ref prices) = result.columns[0] else {
+        panic!("expected F64 price column");
+    };
+
+    // First probe is at exactly midnight 2026-02-10 00:00:00 — may or may not have
+    // a trade at or before that exact microsecond. All subsequent probes should hit.
+    let mut non_null = 0;
+    let mut prev_ts = i64::MIN;
+    for i in 0..n {
+        if result.timestamps[i] != NULL_I64 {
+            non_null += 1;
+            assert!(
+                result.timestamps[i] <= probe_timestamps[i],
+                "probe {i}: result timestamp {} > probe {}",
+                result.timestamps[i],
+                probe_timestamps[i]
+            );
+            assert!(
+                prices[i] > 0.0 && !prices[i].is_nan(),
+                "probe {i}: price should be positive, got {}",
+                prices[i]
+            );
+            // Result timestamps should be monotonically non-decreasing
+            assert!(
+                result.timestamps[i] >= prev_ts,
+                "probe {i}: result timestamp went backwards: {} < {}",
+                result.timestamps[i],
+                prev_ts
+            );
+            prev_ts = result.timestamps[i];
+        }
+    }
+
+    // ETHUSDT trades continuously; expect virtually all probes to hit
+    let hit_pct = non_null as f64 / n as f64 * 100.0;
+    assert!(
+        hit_pct > 99.0,
+        "expected >99% hit rate, got {hit_pct:.1}% ({non_null}/{n})"
+    );
+
+    println!("    PASS ({non_null}/{n} hits, {hit_pct:.1}%, {elapsed:.3?})");
 }
