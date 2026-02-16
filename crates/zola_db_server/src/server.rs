@@ -9,7 +9,7 @@ use zola_db::{
     AsofResult, ColumnDef, ColumnSlice, ColumnType, ColumnVec, Db, Direction, Probes, Schema,
 };
 
-use crate::wire::*;
+use zola_db_proto::*;
 
 pub fn handle_conn(mut stream: TcpStream, db: Arc<RwLock<Db>>) {
     stream

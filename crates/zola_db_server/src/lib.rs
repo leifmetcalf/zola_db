@@ -1,4 +1,3 @@
-pub mod wire;
 pub mod client;
 pub mod server;
 

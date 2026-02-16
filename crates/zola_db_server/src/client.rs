@@ -5,7 +5,7 @@ use zerocopy::{FromBytes, IntoBytes};
 
 use zola_db::{AsofResult, ColumnSlice, ColumnType, ColumnVec, Direction, Probes, Schema};
 
-use crate::wire::*;
+use zola_db_proto::*;
 
 pub struct Client {
     stream: TcpStream,
