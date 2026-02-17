@@ -40,7 +40,7 @@ pub fn write_parted_file(path: &Path, entries: &[PartedEntry]) -> Result<()> {
 pub fn write_sidecar_file(
     path: &Path,
     num_value_cols: u32,
-    entries: &[(i64, Vec<u8>)],
+    entries: &[(u64, Vec<u8>)],
 ) -> Result<()> {
     let header = SidecarHeader {
         magic: SIDECAR_MAGIC,
@@ -51,7 +51,9 @@ pub fn write_sidecar_file(
     let mut file = fs::File::create(path).map_err(|e| ZolaError::io(path, e))?;
     file.write_all(header.as_bytes())
         .map_err(|e| ZolaError::io(path, e))?;
+    let expected_val_size = sidecar_entry_size(num_value_cols) - 8; // entry minus sym_id
     for (sym_id, val_bytes) in entries {
+        debug_assert_eq!(val_bytes.len(), expected_val_size);
         file.write_all(&sym_id.to_ne_bytes())
             .map_err(|e| ZolaError::io(path, e))?;
         file.write_all(val_bytes)

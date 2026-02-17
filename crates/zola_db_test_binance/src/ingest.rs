@@ -18,7 +18,6 @@ pub fn schema() -> Schema {
 pub fn ingest(
     db: &mut Db,
     files: &[(String, String, PathBuf)],
-    symbol_ids: &BTreeMap<String, i64>,
 ) {
     let schema = schema();
 
@@ -36,16 +35,11 @@ pub fn ingest(
         let mut prices = Vec::new();
         let mut quantities = Vec::new();
 
-        for &(symbol, _, path) in date_files.iter() {
-            let sym_id = match symbol_ids.get(symbol) {
-                Some(&id) => id,
-                None => continue,
-            };
-
+        for (symbol, _, path) in date_files.iter().copied() {
             let trades = parse::parse_zip(path);
             for t in &trades {
                 timestamps.push(t.timestamp_us);
-                symbols.push(sym_id);
+                symbols.push(symbol.as_str());
                 prices.push(t.price);
                 quantities.push(t.quantity);
             }

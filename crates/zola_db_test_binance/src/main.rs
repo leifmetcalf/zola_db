@@ -1,6 +1,7 @@
 mod download;
 mod ingest;
 mod parse;
+mod polars_verify;
 mod symbols;
 mod verify;
 
@@ -15,14 +16,13 @@ async fn main() {
     println!("Phase 1: Discovering USDT perpetual symbols...");
     let t = Instant::now();
     let client = reqwest::Client::new();
-    let symbol_ids = symbols::fetch_symbols(&client).await;
+    let symbol_names = symbols::fetch_symbols(&client).await;
     println!(
         "  found {} symbols ({:.1}s)",
-        symbol_ids.len(),
+        symbol_names.len(),
         t.elapsed().as_secs_f64()
     );
 
-    let symbol_names: Vec<String> = symbol_ids.keys().cloned().collect();
     let dates = ["2026-02-10", "2026-02-11", "2026-02-12"];
 
     // --- Phase 2: Download ---
@@ -58,7 +58,7 @@ async fn main() {
     } else {
         std::fs::create_dir_all(&db_dir).expect("failed to create db dir");
         let mut db = zola_db::Db::open(&db_dir).expect("failed to open db");
-        ingest::ingest(&mut db, &files, &symbol_ids);
+        ingest::ingest(&mut db, &files);
     }
 
     let db = zola_db::Db::open(&db_dir).expect("failed to open db");
@@ -67,8 +67,14 @@ async fn main() {
     // --- Phase 4: Verify ---
     println!("Phase 4: Running asof join verification...");
     let t = Instant::now();
-    verify::run_all(&db, &symbol_ids);
+    verify::run_all(&db);
     println!("  verification complete ({:.1}s)", t.elapsed().as_secs_f64());
+
+    // --- Phase 5: Polars cross-check ---
+    println!("Phase 5: Cross-checking against Polars asof join...");
+    let t = Instant::now();
+    polars_verify::run_all(&db, &cache_dir);
+    println!("  polars cross-check complete ({:.1}s)", t.elapsed().as_secs_f64());
 
     println!(
         "\nAll done! Total time: {:.1}s",

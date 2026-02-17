@@ -88,4 +88,33 @@ impl<'a> Reader<'a> {
         let bytes = self.read_bytes(count * 8)?;
         <[f64]>::ref_from_bytes(bytes).map_err(|e| format!("alignment error: {e}"))
     }
+
+    pub fn read_str_array(&mut self) -> Result<Vec<&'a str>, String> {
+        let count = self.read_u64()? as usize;
+        let mut out = Vec::with_capacity(count);
+        for _ in 0..count {
+            let len = self.read_u64()? as usize;
+            let bytes = self.read_bytes(len)?;
+            let s = std::str::from_utf8(bytes).map_err(|e| format!("bad utf8: {e}"))?;
+            out.push(s);
+        }
+        // Align to 8 bytes
+        let pad = padded_len(self.pos) - self.pos;
+        if pad > 0 && pad < 8 {
+            self.read_bytes(pad)?;
+        }
+        Ok(out)
+    }
+}
+
+pub fn write_str_array(buf: &mut Vec<u8>, strings: &[&str]) {
+    buf.extend_from_slice(&(strings.len() as u64).to_ne_bytes());
+    for s in strings {
+        buf.extend_from_slice(&(s.len() as u64).to_ne_bytes());
+        buf.extend_from_slice(s.as_bytes());
+    }
+    let pad = padded_len(buf.len()) - buf.len();
+    for _ in 0..pad {
+        buf.push(0);
+    }
 }

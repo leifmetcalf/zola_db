@@ -22,7 +22,7 @@ impl Client {
         table: &str,
         schema: &Schema,
         timestamps: &[i64],
-        symbols: &[i64],
+        symbols: &[&str],
         columns: &[ColumnSlice<'_>],
     ) -> Result<(), String> {
         let body = build_write_body(table, schema, timestamps, symbols, columns);
@@ -112,7 +112,7 @@ fn build_write_body(
     table: &str,
     schema: &Schema,
     timestamps: &[i64],
-    symbols: &[i64],
+    symbols: &[&str],
     columns: &[ColumnSlice<'_>],
 ) -> Vec<u8> {
     let mut body = Vec::new();
@@ -138,7 +138,9 @@ fn build_write_body(
     body.extend_from_slice(&(col_count as u64).to_ne_bytes());
 
     body.extend_from_slice(timestamps.as_bytes());
-    body.extend_from_slice(symbols.as_bytes());
+
+    // Write symbol strings
+    write_str_array(&mut body, symbols);
 
     // col_types + padding
     for col in columns {
@@ -176,8 +178,12 @@ fn build_asof_body(table: &str, probes: &Probes<'_>, direction: Direction) -> Ve
     body.extend_from_slice(&dir_u32.to_ne_bytes());
     body.extend_from_slice(&0u32.to_ne_bytes()); // pad
 
-    body.extend_from_slice(&(probes.symbols.len() as u64).to_ne_bytes());
-    body.extend_from_slice(probes.symbols.as_bytes());
+    let probe_count = probes.symbols.len();
+    body.extend_from_slice(&(probe_count as u64).to_ne_bytes());
+
+    // Write symbol strings
+    write_str_array(&mut body, probes.symbols);
+
     body.extend_from_slice(probes.timestamps.as_bytes());
 
     body
@@ -188,6 +194,9 @@ fn parse_asof_result(body: &[u8]) -> Result<AsofResult, String> {
 
     let probe_count = r.read_u64()? as usize;
     let col_count = r.read_u64()? as usize;
+
+    // Read symbol names
+    let symbol_strs = r.read_str_array()?;
 
     let timestamps = r.read_i64_slice(probe_count)?.to_vec();
 
@@ -212,6 +221,7 @@ fn parse_asof_result(body: &[u8]) -> Result<AsofResult, String> {
     }
 
     Ok(AsofResult {
+        symbols: symbol_strs.into_iter().map(|s| s.to_string()).collect(),
         timestamps,
         columns,
     })

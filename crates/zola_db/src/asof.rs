@@ -7,6 +7,7 @@ use crate::schema::*;
 
 #[derive(Debug)]
 pub struct AsofResult {
+    pub symbols: Vec<String>,
     pub timestamps: Vec<i64>,
     pub columns: Vec<ColumnVec>,
 }
@@ -14,13 +15,15 @@ pub struct AsofResult {
 pub fn asof_join(
     schema: &Schema,
     partitions: &BTreeMap<String, Partition>,
-    probes: &Probes<'_>,
+    symbol_ids: &[u64],
+    symbol_names: &[&str],
+    timestamps: &[i64],
     direction: Direction,
 ) -> Result<AsofResult> {
-    let n = probes.symbols.len();
-    if n != probes.timestamps.len() {
+    let n = symbol_ids.len();
+    if n != timestamps.len() {
         return Err(crate::error::ZolaError::SchemaMismatch(format!(
-            "probes symbols len {} != timestamps len {}", n, probes.timestamps.len()
+            "probes symbols len {} != timestamps len {}", n, timestamps.len()
         )));
     }
 
@@ -35,8 +38,8 @@ pub fn asof_join(
         .collect();
 
     for probe_idx in 0..n {
-        let sym = probes.symbols[probe_idx];
-        let ts = probes.timestamps[probe_idx];
+        let sym = symbol_ids[probe_idx];
+        let ts = timestamps[probe_idx];
         let date_str = micros_to_date_str(ts)?;
 
         match direction {
@@ -68,6 +71,7 @@ pub fn asof_join(
     }
 
     Ok(AsofResult {
+        symbols: symbol_names.iter().map(|s| s.to_string()).collect(),
         timestamps: result_ts,
         columns: result_cols,
     })
@@ -77,7 +81,7 @@ fn backward_lookup(
     schema: &Schema,
     partitions: &BTreeMap<String, Partition>,
     date_str: &str,
-    sym: i64,
+    sym: u64,
     ts: i64,
     probe_idx: usize,
     result_ts: &mut [i64],
@@ -123,7 +127,7 @@ fn forward_lookup(
     schema: &Schema,
     partitions: &BTreeMap<String, Partition>,
     date_str: &str,
-    sym: i64,
+    sym: u64,
     ts: i64,
     probe_idx: usize,
     result_ts: &mut [i64],
@@ -167,7 +171,7 @@ fn try_prev_sidecar(
     schema: &Schema,
     partitions: &BTreeMap<String, Partition>,
     date_str: &str,
-    sym: i64,
+    sym: u64,
     probe_idx: usize,
     result_ts: &mut [i64],
     result_cols: &mut [ColumnVec],
@@ -185,7 +189,7 @@ fn try_next_sidecar(
     schema: &Schema,
     partitions: &BTreeMap<String, Partition>,
     date_str: &str,
-    sym: i64,
+    sym: u64,
     probe_idx: usize,
     result_ts: &mut [i64],
     result_cols: &mut [ColumnVec],
@@ -205,7 +209,7 @@ fn prev_partition<'a>(
 ) -> Option<&'a Partition> {
     use std::ops::Bound;
     partitions
-        .range::<String, _>((Bound::Unbounded, Bound::Excluded(date_str.to_string())))
+        .range::<str, _>((Bound::Unbounded, Bound::Excluded(date_str)))
         .next_back()
         .map(|(_, p)| p)
 }
@@ -216,7 +220,7 @@ fn next_partition<'a>(
 ) -> Option<&'a Partition> {
     use std::ops::Bound;
     partitions
-        .range::<String, _>((Bound::Excluded(date_str.to_string()), Bound::Unbounded))
+        .range::<str, _>((Bound::Excluded(date_str), Bound::Unbounded))
         .next()
         .map(|(_, p)| p)
 }

@@ -26,7 +26,7 @@ pub enum Direction {
 }
 
 pub struct Probes<'a> {
-    pub symbols: &'a [i64],
+    pub symbols: &'a [&'a str],
     pub timestamps: &'a [i64],
 }
 

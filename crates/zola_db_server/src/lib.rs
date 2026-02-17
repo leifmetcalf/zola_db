@@ -52,7 +52,7 @@ mod tests {
 
         let schema = two_col_schema();
         let timestamps = vec![JAN15 + 36_000_000_000, JAN15 + 36_001_000_000];
-        let symbols = vec![1_i64, 1];
+        let symbols = vec!["SYM1", "SYM1"];
         let prices = vec![100.5_f64, 101.0];
         let sizes = vec![500_i64, 600];
 
@@ -71,7 +71,7 @@ mod tests {
             .asof(
                 "trades",
                 &Probes {
-                    symbols: &[1],
+                    symbols: &["SYM1"],
                     timestamps: &[JAN15 + 36_000_500_000],
                 },
                 Direction::Backward,
@@ -87,6 +87,7 @@ mod tests {
             ColumnVec::I64(v) => assert_eq!(v[0], 500),
             _ => panic!("expected I64"),
         }
+        assert_eq!(result.symbols, vec!["SYM1"]);
     }
 
     #[test]
@@ -102,7 +103,7 @@ mod tests {
             }],
         };
         let timestamps = vec![JAN15 + 36_000_000_000, JAN15 + 36_001_000_000];
-        let symbols = vec![1_i64, 1];
+        let symbols = vec!["SYM1", "SYM1"];
         let prices = vec![100.0_f64, 101.0];
 
         client
@@ -120,7 +121,7 @@ mod tests {
             .asof(
                 "trades",
                 &Probes {
-                    symbols: &[1],
+                    symbols: &["SYM1"],
                     timestamps: &[JAN15 + 36_000_500_000],
                 },
                 Direction::Forward,
@@ -151,17 +152,17 @@ mod tests {
                 "trades",
                 &schema,
                 &[JAN15 + 36_000_000_000],
-                &[1_i64],
+                &["SYM1"],
                 &[ColumnSlice::F64(&[100.0])],
             )
             .unwrap();
 
-        // Query symbol 99 which doesn't exist
+        // Query UNKNOWN which doesn't exist
         let result = client
             .asof(
                 "trades",
                 &Probes {
-                    symbols: &[99],
+                    symbols: &["UNKNOWN"],
                     timestamps: &[JAN15 + 36_000_000_000],
                 },
                 Direction::Backward,
@@ -184,7 +185,7 @@ mod tests {
         let result = client.asof(
             "nonexistent",
             &Probes {
-                symbols: &[1],
+                symbols: &["SYM1"],
                 timestamps: &[JAN15],
             },
             Direction::Backward,

@@ -1,5 +1,3 @@
-use std::collections::BTreeMap;
-
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -16,8 +14,8 @@ struct SymbolInfo {
     status: String,
 }
 
-/// Fetch Binance USDT perpetual symbols sorted alphabetically with sequential i64 IDs.
-pub async fn fetch_symbols(client: &reqwest::Client) -> BTreeMap<String, i64> {
+/// Fetch Binance USDT perpetual symbols sorted alphabetically.
+pub async fn fetch_symbols(client: &reqwest::Client) -> Vec<String> {
     let info: ExchangeInfo = client
         .get("https://fapi.binance.com/fapi/v1/exchangeInfo")
         .send()
@@ -39,10 +37,5 @@ pub async fn fetch_symbols(client: &reqwest::Client) -> BTreeMap<String, i64> {
         .collect();
 
     names.sort();
-
     names
-        .into_iter()
-        .enumerate()
-        .map(|(i, name)| (name, i as i64))
-        .collect()
 }

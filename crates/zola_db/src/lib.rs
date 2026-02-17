@@ -4,6 +4,7 @@ mod format;
 mod io;
 mod partition;
 mod asof;
+mod symbol_map;
 
 pub use error::{ZolaError, Result};
 pub use schema::{
@@ -15,9 +16,12 @@ pub use asof::AsofResult;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use symbol_map::SymbolMap;
+
 struct TableInfo {
     schema: Schema,
     partitions: BTreeMap<String, partition::Partition>,
+    symbol_map: SymbolMap,
 }
 
 pub struct Db {
@@ -55,15 +59,31 @@ impl Db {
         table: &str,
         schema: &Schema,
         timestamps: &[i64],
-        symbols: &[i64],
+        symbols: &[&str],
         columns: &[ColumnSlice<'_>],
     ) -> Result<()> {
-        partition::write_table(&self.root, table, schema, timestamps, symbols, columns)?;
+        // Resolve symbol strings to u64 IDs
+        let table_dir = self.root.join(table);
+        let info = self.tables.entry(table.to_string()).or_insert_with(|| TableInfo {
+            schema: schema.clone(),
+            partitions: BTreeMap::new(),
+            symbol_map: SymbolMap::new(),
+        });
+
+        let symbol_ids: Vec<u64> = symbols
+            .iter()
+            .map(|name| info.symbol_map.get_or_insert(name))
+            .collect();
+
+        // Persist the symbol map
+        std::fs::create_dir_all(&table_dir).map_err(|e| ZolaError::io(&table_dir, e))?;
+        info.symbol_map.save(&table_dir.join(".symbols"))?;
+
+        partition::write_table(&self.root, table, schema, timestamps, &symbol_ids, columns)?;
 
         // Reload the table
-        let table_dir = self.root.join(table);
-        if let Some(info) = load_table(&table_dir)? {
-            self.tables.insert(table.to_string(), info);
+        if let Some(loaded) = load_table(&table_dir)? {
+            self.tables.insert(table.to_string(), loaded);
         }
 
         Ok(())
@@ -79,7 +99,22 @@ impl Db {
             .tables
             .get(table)
             .ok_or_else(|| ZolaError::TableNotFound(table.to_string()))?;
-        asof::asof_join(&info.schema, &info.partitions, probes, direction)
+
+        // Resolve probe symbol strings to u64 IDs
+        let symbol_ids: Vec<u64> = probes
+            .symbols
+            .iter()
+            .map(|name| info.symbol_map.get_id(name).unwrap_or(u64::MAX))
+            .collect();
+
+        asof::asof_join(
+            &info.schema,
+            &info.partitions,
+            &symbol_ids,
+            probes.symbols,
+            probes.timestamps,
+            direction,
+        )
     }
 }
 
@@ -88,6 +123,8 @@ fn load_table(table_dir: &Path) -> Result<Option<TableInfo>> {
         Some(s) => s,
         None => return Ok(None),
     };
+
+    let symbol_map = SymbolMap::load(&table_dir.join(".symbols"))?;
 
     let mut partitions = BTreeMap::new();
     for entry in std::fs::read_dir(table_dir).map_err(|e| ZolaError::io(table_dir, e))? {
@@ -102,7 +139,7 @@ fn load_table(table_dir: &Path) -> Result<Option<TableInfo>> {
         }
     }
 
-    Ok(Some(TableInfo { schema, partitions }))
+    Ok(Some(TableInfo { schema, partitions, symbol_map }))
 }
 
 fn is_date_str(s: &str) -> bool {
@@ -154,21 +191,21 @@ mod tests {
         let mut db = Db::open(dir.path()).unwrap();
         let schema = price_schema();
 
-        // Three ticks on Jan 15: sym 1 at 10:00:00 and 10:00:01, sym 2 at 10:00:02
+        // Three ticks on Jan 15: SYM1 at 10:00:00 and 10:00:01, SYM2 at 10:00:02
         let timestamps = vec![ts(0, 10, 0, 0, 0), ts(0, 10, 0, 1, 0), ts(0, 10, 0, 2, 0)];
-        let symbols = vec![1_i64, 1, 2];
+        let symbols = vec!["SYM1", "SYM1", "SYM2"];
         let prices = vec![100.0_f64, 100.5, 200.0];
 
         db.write("trades", &schema, &timestamps, &symbols, &[ColumnSlice::F64(&prices)])
             .unwrap();
 
-        // Probe: sym 1 at 10:00:00.5 -> should find 10:00:00 (100.0)
-        // Probe: sym 2 at 10:00:03   -> should find 10:00:02 (200.0)
+        // Probe: SYM1 at 10:00:00.5 -> should find 10:00:00 (100.0)
+        // Probe: SYM2 at 10:00:03   -> should find 10:00:02 (200.0)
         let result = db
             .asof(
                 "trades",
                 &Probes {
-                    symbols: &[1, 2],
+                    symbols: &["SYM1", "SYM2"],
                     timestamps: &[ts(0, 10, 0, 0, 500_000), ts(0, 10, 0, 3, 0)],
                 },
                 Direction::Backward,
@@ -183,6 +220,8 @@ mod tests {
         };
         assert_eq!(p[0], 100.0);
         assert_eq!(p[1], 200.0);
+
+        assert_eq!(result.symbols, vec!["SYM1", "SYM2"]);
     }
 
     // ---- Test 2: Forward asof ----
@@ -194,18 +233,18 @@ mod tests {
         let schema = price_schema();
 
         let timestamps = vec![ts(0, 10, 0, 0, 0), ts(0, 10, 0, 1, 0)];
-        let symbols = vec![1_i64, 1];
+        let symbols = vec!["SYM1", "SYM1"];
         let prices = vec![100.0_f64, 100.5];
 
         db.write("trades", &schema, &timestamps, &symbols, &[ColumnSlice::F64(&prices)])
             .unwrap();
 
-        // Probe: sym 1 at 10:00:00.5 -> forward should find 10:00:01 (100.5)
+        // Probe: SYM1 at 10:00:00.5 -> forward should find 10:00:01 (100.5)
         let result = db
             .asof(
                 "trades",
                 &Probes {
-                    symbols: &[1],
+                    symbols: &["SYM1"],
                     timestamps: &[ts(0, 10, 0, 0, 500_000)],
                 },
                 Direction::Forward,
@@ -227,32 +266,32 @@ mod tests {
         let mut db = Db::open(dir.path()).unwrap();
         let schema = price_schema();
 
-        // Jan 15: sym 1 at 23:59:59
+        // Jan 15: SYM1 at 23:59:59
         db.write(
             "trades",
             &schema,
             &[ts(0, 23, 59, 59, 0)],
-            &[1_i64],
+            &["SYM1"],
             &[ColumnSlice::F64(&[150.0])],
         )
         .unwrap();
 
-        // Jan 16: sym 1 at 10:00:00
+        // Jan 16: SYM1 at 10:00:00
         db.write(
             "trades",
             &schema,
             &[ts(1, 10, 0, 0, 0)],
-            &[1],
+            &["SYM1"],
             &[ColumnSlice::F64(&[160.0])],
         )
         .unwrap();
 
-        // Probe: sym 1 at Jan 16 09:00 (before any Jan 16 data)
+        // Probe: SYM1 at Jan 16 09:00 (before any Jan 16 data)
         let result = db
             .asof(
                 "trades",
                 &Probes {
-                    symbols: &[1],
+                    symbols: &["SYM1"],
                     timestamps: &[ts(1, 9, 0, 0, 0)],
                 },
                 Direction::Backward,
@@ -275,43 +314,43 @@ mod tests {
         let mut db = Db::open(dir.path()).unwrap();
         let schema = price_schema();
 
-        // Day -2 (Jan 13): sym 1 has data
+        // Day -2 (Jan 13): SYM1 has data
         db.write(
             "trades",
             &schema,
             &[ts(-2, 12, 0, 0, 0)],
-            &[1_i64],
+            &["SYM1"],
             &[ColumnSlice::F64(&[99.0])],
         )
         .unwrap();
 
-        // Day -1 (Jan 14): only sym 2 (no sym 1!)
+        // Day -1 (Jan 14): only SYM2 (no SYM1!)
         db.write(
             "trades",
             &schema,
             &[ts(-1, 12, 0, 0, 0)],
-            &[2_i64],
+            &["SYM2"],
             &[ColumnSlice::F64(&[300.0])],
         )
         .unwrap();
 
-        // Day 0 (Jan 15): only sym 2
+        // Day 0 (Jan 15): only SYM2
         db.write(
             "trades",
             &schema,
             &[ts(0, 12, 0, 0, 0)],
-            &[2_i64],
+            &["SYM2"],
             &[ColumnSlice::F64(&[301.0])],
         )
         .unwrap();
 
-        // Probe: sym 1 on Jan 15 -> Jan 14 sidecar has no sym 1 -> NULL
+        // Probe: SYM1 on Jan 15 -> Jan 14 sidecar has no SYM1 -> NULL
         // Must NOT recurse to Jan 13
         let result = db
             .asof(
                 "trades",
                 &Probes {
-                    symbols: &[1],
+                    symbols: &["SYM1"],
                     timestamps: &[ts(0, 12, 0, 0, 0)],
                 },
                 Direction::Backward,
@@ -337,7 +376,7 @@ mod tests {
         let t1 = ts(0, 10, 0, 0, 1);     // ...000001
         let t2 = ts(0, 10, 0, 0, 999999); // ...999999
         let timestamps = vec![t1, t2];
-        let symbols = vec![1_i64, 1];
+        let symbols = vec!["SYM1", "SYM1"];
         let prices = vec![1.0_f64, 2.0];
 
         db.write("trades", &schema, &timestamps, &symbols, &[ColumnSlice::F64(&prices)])
@@ -347,7 +386,7 @@ mod tests {
         let r1 = db
             .asof(
                 "trades",
-                &Probes { symbols: &[1], timestamps: &[t1] },
+                &Probes { symbols: &["SYM1"], timestamps: &[t1] },
                 Direction::Backward,
             )
             .unwrap();
@@ -357,7 +396,7 @@ mod tests {
         let r2 = db
             .asof(
                 "trades",
-                &Probes { symbols: &[1], timestamps: &[t1 + 500_000] },
+                &Probes { symbols: &["SYM1"], timestamps: &[t1 + 500_000] },
                 Direction::Backward,
             )
             .unwrap();
@@ -367,7 +406,7 @@ mod tests {
         let r3 = db
             .asof(
                 "trades",
-                &Probes { symbols: &[1], timestamps: &[t1 + 500_000] },
+                &Probes { symbols: &["SYM1"], timestamps: &[t1 + 500_000] },
                 Direction::Forward,
             )
             .unwrap();
@@ -383,7 +422,7 @@ mod tests {
         let schema = two_col_schema();
 
         let timestamps = vec![ts(0, 10, 0, 0, 0), ts(0, 10, 0, 1, 0)];
-        let symbols = vec![1_i64, 1];
+        let symbols = vec!["SYM1", "SYM1"];
         let prices = vec![50.5_f64, 51.0];
         let sizes = vec![100_i64, 200];
 
@@ -400,7 +439,7 @@ mod tests {
             .asof(
                 "trades",
                 &Probes {
-                    symbols: &[1],
+                    symbols: &["SYM1"],
                     timestamps: &[ts(0, 10, 0, 0, 500_000)],
                 },
                 Direction::Backward,
@@ -431,7 +470,7 @@ mod tests {
             "trades",
             &schema,
             &[ts(0, 10, 0, 0, 0)],
-            &[1_i64],
+            &["SYM1"],
             &[ColumnSlice::F64(&[100.0])],
         )
         .unwrap();
@@ -441,7 +480,7 @@ mod tests {
             .asof(
                 "trades",
                 &Probes {
-                    symbols: &[1],
+                    symbols: &["SYM1"],
                     timestamps: &[ts(5, 10, 0, 0, 0)],
                 },
                 Direction::Backward,

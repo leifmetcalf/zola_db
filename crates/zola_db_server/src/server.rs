@@ -91,7 +91,14 @@ fn handle_write(body: &[u8], db: &Arc<RwLock<Db>>) -> Result<(), String> {
     }
 
     let timestamps = r.read_i64_slice(row_count)?;
-    let symbols = r.read_i64_slice(row_count)?;
+
+    // Read symbol strings
+    let symbols = r.read_str_array()?;
+    if symbols.len() != row_count {
+        return Err(format!(
+            "symbols count {} != row_count {}", symbols.len(), row_count
+        ));
+    }
 
     // Read col_types + padding
     let col_types_bytes = r.read_bytes(col_count * 4)?;
@@ -120,7 +127,7 @@ fn handle_write(body: &[u8], db: &Arc<RwLock<Db>>) -> Result<(), String> {
     }
 
     let mut db = db.write().map_err(|e| format!("lock error: {e}"))?;
-    db.write(table, &schema, timestamps, symbols, &columns)
+    db.write(table, &schema, timestamps, &symbols, &columns)
         .map_err(|e| format!("{e}"))
 }
 
@@ -140,11 +147,19 @@ fn handle_asof(body: &[u8], db: &Arc<RwLock<Db>>) -> Result<AsofResult, String> 
     };
 
     let probe_count = r.read_u64()? as usize;
-    let symbols = r.read_i64_slice(probe_count)?;
+
+    // Read symbol strings
+    let symbols = r.read_str_array()?;
+    if symbols.len() != probe_count {
+        return Err(format!(
+            "symbols count {} != probe_count {}", symbols.len(), probe_count
+        ));
+    }
+
     let timestamps = r.read_i64_slice(probe_count)?;
 
     let db = db.read().map_err(|e| format!("lock error: {e}"))?;
-    db.asof(table, &Probes { symbols, timestamps }, direction)
+    db.asof(table, &Probes { symbols: &symbols, timestamps }, direction)
         .map_err(|e| format!("{e}"))
 }
 
@@ -203,6 +218,11 @@ fn send_result(stream: &mut TcpStream, result: &AsofResult) {
     let mut body = Vec::new();
     body.extend_from_slice(&(probe_count as u64).to_ne_bytes());
     body.extend_from_slice(&(col_count as u64).to_ne_bytes());
+
+    // Write symbol names
+    let sym_refs: Vec<&str> = result.symbols.iter().map(|s| s.as_str()).collect();
+    write_str_array(&mut body, &sym_refs);
+
     body.extend_from_slice(result.timestamps.as_bytes());
 
     for col in &result.columns {

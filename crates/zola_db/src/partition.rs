@@ -12,8 +12,8 @@ use crate::schema::{ColumnSlice, ColumnType, Schema};
 pub struct Partition {
     columns: HashMap<String, Mmap>,
     parted: Vec<PartedEntry>,
-    pub last_values: Option<HashMap<i64, Vec<u8>>>,
-    pub first_values: Option<HashMap<i64, Vec<u8>>>,
+    pub last_values: Option<HashMap<u64, Vec<u8>>>,
+    pub first_values: Option<HashMap<u64, Vec<u8>>>,
 }
 
 impl Partition {
@@ -81,7 +81,7 @@ impl Partition {
         <[f64]>::ref_from_bytes(data).ok()
     }
 
-    pub fn symbol_range(&self, sym_id: i64) -> Option<(usize, usize)> {
+    pub fn symbol_range(&self, sym_id: u64) -> Option<(usize, usize)> {
         self.parted
             .binary_search_by_key(&sym_id, |e| e.symbol_id)
             .ok()
@@ -89,7 +89,7 @@ impl Partition {
     }
 }
 
-fn load_sidecar(path: &Path) -> Result<Option<HashMap<i64, Vec<u8>>>> {
+fn load_sidecar(path: &Path) -> Result<Option<HashMap<u64, Vec<u8>>>> {
     if !path.exists() {
         return Ok(None);
     }
@@ -103,7 +103,7 @@ fn load_sidecar(path: &Path) -> Result<Option<HashMap<i64, Vec<u8>>>> {
         return Err(ZolaError::invalid(path, "bad sidecar magic"));
     }
 
-    let entry_size = (2 + header.num_value_cols as usize) * 8;
+    let entry_size = sidecar_entry_size(header.num_value_cols);
     let entries_data = &data[SIDECAR_HEADER_SIZE..];
 
     let mut map = HashMap::new();
@@ -112,7 +112,7 @@ fn load_sidecar(path: &Path) -> Result<Option<HashMap<i64, Vec<u8>>>> {
         if offset + entry_size > entries_data.len() {
             return Err(ZolaError::invalid(path, "sidecar truncated"));
         }
-        let sym_id = i64::from_ne_bytes(
+        let sym_id = u64::from_ne_bytes(
             entries_data[offset..offset + 8].try_into().unwrap(),
         );
         // Store timestamp + value bytes (skip symbol_id)
@@ -130,7 +130,7 @@ pub fn write_table(
     table: &str,
     schema: &Schema,
     timestamps: &[i64],
-    symbols: &[i64],
+    symbols: &[u64],
     columns: &[ColumnSlice<'_>],
 ) -> Result<()> {
     let n = timestamps.len();
@@ -177,7 +177,7 @@ pub fn write_table(
 
     // Sort indices by (date, symbol, timestamp)
     let mut indices: Vec<usize> = (0..n).collect();
-    indices.sort_unstable_by(|&a, &b| {
+    indices.sort_by(|&a, &b| {
         date_ints[a]
             .cmp(&date_ints[b])
             .then(symbols[a].cmp(&symbols[b]))
@@ -202,7 +202,7 @@ pub fn write_table(
 
         // Build sorted arrays for this group
         let sorted_ts: Vec<i64> = group_indices.iter().map(|&i| timestamps[i]).collect();
-        let sorted_syms: Vec<i64> = group_indices.iter().map(|&i| symbols[i]).collect();
+        let sorted_syms: Vec<u64> = group_indices.iter().map(|&i| symbols[i]).collect();
 
         let sorted_vcol_bytes: Vec<Vec<u8>> = columns
             .iter()
@@ -288,7 +288,7 @@ fn date_int_to_str(date_int: i32) -> String {
     format!("{y:04}.{m:02}.{d:02}")
 }
 
-fn build_parted_index(symbols: &[i64]) -> Vec<PartedEntry> {
+fn build_parted_index(symbols: &[u64]) -> Vec<PartedEntry> {
     if symbols.is_empty() {
         return vec![];
     }
@@ -319,7 +319,7 @@ fn build_sidecar_entries(
     sorted_ts: &[i64],
     sorted_vcol_bytes: &[Vec<u8>],
     pick_last: bool,
-) -> Vec<(i64, Vec<u8>)> {
+) -> Vec<(u64, Vec<u8>)> {
     parted
         .iter()
         .map(|entry| {

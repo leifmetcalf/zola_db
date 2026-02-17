@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::time::Instant;
 
 use jiff::Timestamp;
@@ -20,44 +19,36 @@ fn ts_from_ymdhms(y: i16, mo: i8, d: i8, h: i8, min: i8, s: i8) -> i64 {
 }
 
 /// Run all asof join verification checks.
-pub fn run_all(db: &Db, symbol_ids: &BTreeMap<String, i64>) {
-    test_backward_known_symbols(db, symbol_ids);
-    test_forward_start_of_day(db, symbol_ids);
-    test_cross_partition_sidecar(db, symbol_ids);
-    test_multi_symbol_batch(db, symbol_ids);
-    test_every_minute_ethusdt(db, symbol_ids);
+pub fn run_all(db: &Db) {
+    test_backward_known_symbols(db);
+    test_forward_start_of_day(db);
+    test_cross_partition_sidecar(db);
+    test_multi_symbol_batch(db);
+    test_every_minute_ethusdt(db);
     println!("All verification checks passed!");
 }
 
 /// 1. Backward asof for known symbols at mid-day 2026-02-11.
-fn test_backward_known_symbols(db: &Db, symbol_ids: &BTreeMap<String, i64>) {
+fn test_backward_known_symbols(db: &Db) {
     println!("  check: backward asof for BTCUSDT, ETHUSDT, BNBUSDT at mid-day 2026-02-11");
 
     let probe_ts = ts_from_ymdhms(2026, 2, 11, 12, 0, 0);
-    let syms: Vec<(&str, i64)> = ["BTCUSDT", "ETHUSDT", "BNBUSDT"]
-        .iter()
-        .map(|&name| {
-            let id = *symbol_ids
-                .get(name)
-                .unwrap_or_else(|| panic!("{name} not in symbol map"));
-            (name, id)
-        })
-        .collect();
+    let names: Vec<&str> = vec!["BTCUSDT", "ETHUSDT", "BNBUSDT"];
 
     let t = Instant::now();
     let result = db
         .asof(
             TABLE,
             &Probes {
-                symbols: &syms.iter().map(|s| s.1).collect::<Vec<_>>(),
-                timestamps: &vec![probe_ts; syms.len()],
+                symbols: &names,
+                timestamps: &vec![probe_ts; names.len()],
             },
             Direction::Backward,
         )
         .expect("backward asof failed");
     let elapsed = t.elapsed();
 
-    for (i, (name, _)) in syms.iter().enumerate() {
+    for (i, &name) in names.iter().enumerate() {
         assert_ne!(
             result.timestamps[i], NULL_I64,
             "{name}: expected non-null timestamp"
@@ -90,18 +81,17 @@ fn test_backward_known_symbols(db: &Db, symbol_ids: &BTreeMap<String, i64>) {
 }
 
 /// 2. Forward asof for BTCUSDT at start of 2026-02-10.
-fn test_forward_start_of_day(db: &Db, symbol_ids: &BTreeMap<String, i64>) {
+fn test_forward_start_of_day(db: &Db) {
     println!("  check: forward asof for BTCUSDT at start of 2026-02-10");
 
     let probe_ts = ts_from_ymdhms(2026, 2, 10, 0, 0, 0);
-    let btc_id = *symbol_ids.get("BTCUSDT").expect("BTCUSDT not found");
 
     let t = Instant::now();
     let result = db
         .asof(
             TABLE,
             &Probes {
-                symbols: &[btc_id],
+                symbols: &["BTCUSDT"],
                 timestamps: &[probe_ts],
             },
             Direction::Forward,
@@ -123,18 +113,17 @@ fn test_forward_start_of_day(db: &Db, symbol_ids: &BTreeMap<String, i64>) {
 
 /// 3. Cross-partition sidecar: probe ETHUSDT backward at midnight 2026-02-11.
 ///    Should find the last trade from 2026-02-10 via .last_values sidecar.
-fn test_cross_partition_sidecar(db: &Db, symbol_ids: &BTreeMap<String, i64>) {
+fn test_cross_partition_sidecar(db: &Db) {
     println!("  check: cross-partition sidecar for ETHUSDT at midnight 2026-02-11");
 
     let probe_ts = ts_from_ymdhms(2026, 2, 11, 0, 0, 0);
-    let eth_id = *symbol_ids.get("ETHUSDT").expect("ETHUSDT not found");
 
     let t = Instant::now();
     let result = db
         .asof(
             TABLE,
             &Probes {
-                symbols: &[eth_id],
+                symbols: &["ETHUSDT"],
                 timestamps: &[probe_ts],
             },
             Direction::Backward,
@@ -163,31 +152,22 @@ fn test_cross_partition_sidecar(db: &Db, symbol_ids: &BTreeMap<String, i64>) {
 }
 
 /// 4. Multi-symbol batch: probe 10 liquid symbols at mid-day 2026-02-12.
-fn test_multi_symbol_batch(db: &Db, symbol_ids: &BTreeMap<String, i64>) {
+fn test_multi_symbol_batch(db: &Db) {
     println!("  check: multi-symbol batch asof at mid-day 2026-02-12");
 
     let probe_ts = ts_from_ymdhms(2026, 2, 12, 12, 0, 0);
-    let liquid = [
+    let liquid: Vec<&str> = vec![
         "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT",
         "DOGEUSDT", "ADAUSDT", "AVAXUSDT", "DOTUSDT", "LINKUSDT",
     ];
-
-    let sym_ids: Vec<i64> = liquid
-        .iter()
-        .map(|&name| {
-            *symbol_ids
-                .get(name)
-                .unwrap_or_else(|| panic!("{name} not in symbol map"))
-        })
-        .collect();
 
     let t = Instant::now();
     let result = db
         .asof(
             TABLE,
             &Probes {
-                symbols: &sym_ids,
-                timestamps: &vec![probe_ts; sym_ids.len()],
+                symbols: &liquid,
+                timestamps: &vec![probe_ts; liquid.len()],
             },
             Direction::Backward,
         )
@@ -215,16 +195,15 @@ fn test_multi_symbol_batch(db: &Db, symbol_ids: &BTreeMap<String, i64>) {
 
 /// 5. Backward asof for ETHUSDT at every minute across all 3 days.
 ///    4320 probes (3 days × 24 hours × 60 minutes), issued as a single batch.
-fn test_every_minute_ethusdt(db: &Db, symbol_ids: &BTreeMap<String, i64>) {
+fn test_every_minute_ethusdt(db: &Db) {
     println!("  check: every-minute backward asof for ETHUSDT across 2026-02-10..12");
 
-    let eth_id = *symbol_ids.get("ETHUSDT").expect("ETHUSDT not found");
     let start = ts_from_ymdhms(2026, 2, 10, 0, 0, 0);
     let one_minute_us: i64 = 60 * 1_000_000;
     let n = 3 * 24 * 60; // 4320 probes
 
     let probe_timestamps: Vec<i64> = (0..n).map(|i| start + i as i64 * one_minute_us).collect();
-    let probe_symbols: Vec<i64> = vec![eth_id; n];
+    let probe_symbols: Vec<&str> = vec!["ETHUSDT"; n];
 
     let t = Instant::now();
     let result = db

@@ -19,7 +19,7 @@ pub const HEADER_SIZE: usize = std::mem::size_of::<ColumnHeader>();
 #[derive(Debug, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable)]
 #[repr(C)]
 pub struct PartedEntry {
-    pub symbol_id: i64,
+    pub symbol_id: u64,
     pub start: u64,
     pub end: u64,
 }
@@ -34,3 +34,8 @@ pub struct SidecarHeader {
 }
 
 pub const SIDECAR_HEADER_SIZE: usize = std::mem::size_of::<SidecarHeader>();
+
+/// Size of one sidecar entry in the file: sym_id(8) + timestamp(8) + values(num_value_cols * 8)
+pub fn sidecar_entry_size(num_value_cols: u32) -> usize {
+    (2 + num_value_cols as usize) * 8
+}
