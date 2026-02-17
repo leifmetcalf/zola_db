@@ -237,13 +237,6 @@ pub fn write_table(
                 sorted_ts.as_bytes(),
             )?;
 
-            // Write symbol column
-            write_column_file(
-                &tmp_dir.join("symbol.col"),
-                ColumnType::I64,
-                sorted_syms.as_bytes(),
-            )?;
-
             // Write value columns
             for (ci, col_def) in schema.value_columns.iter().enumerate() {
                 write_column_file(

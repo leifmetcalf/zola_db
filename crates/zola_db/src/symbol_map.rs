@@ -30,10 +30,6 @@ impl SymbolMap {
         self.ids.get(name).copied()
     }
 
-    pub fn get_name(&self, id: u64) -> Option<&str> {
-        self.names.get(id as usize).map(|s| s.as_str())
-    }
-
     pub fn load(path: &Path) -> Result<SymbolMap> {
         if !path.exists() {
             return Ok(SymbolMap::new());
