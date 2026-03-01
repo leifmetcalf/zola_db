@@ -1,0 +1,13 @@
+[package]
+name = "zola_db"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+arrow = { workspace = true }
+bytes = { workspace = true }
+jiff = { workspace = true }
+memmap2 = { workspace = true }
+tempfile = { workspace = true }
+thiserror = { workspace = true }
+zola_db_core = { workspace = true }

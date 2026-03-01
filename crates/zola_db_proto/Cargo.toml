@@ -1,0 +1,13 @@
+[package]
+name = "zola_db_proto"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+arrow = { workspace = true }
+jiff = { workspace = true }
+postcard = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+zola_db_core = { workspace = true }

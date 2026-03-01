@@ -1,0 +1,13 @@
+[package]
+name = "zola_db_server"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+arrow = { workspace = true }
+jiff = { workspace = true }
+reqwest = { workspace = true }
+tokio = { workspace = true }
+zip = { workspace = true }
+zola_db = { workspace = true }
+zola_db_proto = { workspace = true }
